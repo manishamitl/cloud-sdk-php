@@ -1,0 +1,43 @@
+# eCollectors Cloud PHP SDK — CI
+#
+# Runs the full test suite on every push and pull request to main,
+# including the coverage guardrail (every generated Request's operationId
+# matches the pinned contract, and vice versa) and the no-generated-class-
+# in-public-API guardrail (M6-DOCS-SDKS-DESIGN.md §4, in the eCollectors
+# platform repo).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  tests:
+    name: Test suite (PHP 8.4)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Cache Composer packages
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.json') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Install Composer dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Run the test suite
+        run: vendor/bin/pest
