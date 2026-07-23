@@ -1,5 +1,7 @@
 # eCollectors Cloud — PHP/Laravel SDK
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 The official PHP client for the [eCollectors Cloud API](https://docs.ecollectors.cloud)
 (M6.2, `ecollectors/cloud-sdk`). Generated models and endpoint definitions,
 wrapped by a small hand-maintained facade — the only class you ever import
@@ -100,3 +102,7 @@ composer install
 composer generate   # regenerate src/Generated/ from contract/openapi.yaml
 composer test
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).

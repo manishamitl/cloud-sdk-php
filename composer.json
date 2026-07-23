@@ -2,7 +2,14 @@
     "name": "ecollectors/cloud-sdk",
     "description": "Official PHP/Laravel SDK for the eCollectors Cloud API (M6.2) — generated models and Requests, hand-maintained facade.",
     "type": "library",
-    "license": "proprietary",
+    "license": "MIT",
+    "homepage": "https://github.com/ecollectors/cloud-sdk-php",
+    "support": {
+        "issues": "https://github.com/ecollectors/cloud-sdk-php/issues",
+        "source": "https://github.com/ecollectors/cloud-sdk-php",
+        "docs": "https://docs.ecollectors.cloud"
+    },
+    "keywords": ["ecollectors", "sdk", "api-client", "openapi", "laravel", "saloon"],
     "require": {
         "php": "^8.1",
         "saloonphp/saloon": "^4.0"
