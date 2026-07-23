@@ -1,0 +1,57 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require dirname(__DIR__).'/vendor/autoload.php';
+
+use Ecollectors\CloudSdk\Generator\ContractLoader;
+use Ecollectors\CloudSdk\Generator\DtoEmitter;
+use Ecollectors\CloudSdk\Generator\RequestEmitter;
+use Ecollectors\CloudSdk\Generator\SchemaNormalizer;
+
+$root = dirname(__DIR__);
+$loader = new ContractLoader($root.'/contract/openapi.yaml');
+
+$dtoDir = $root.'/src/Generated';
+$requestDir = $root.'/src/Generated/Requests';
+
+@mkdir($dtoDir, recursive: true);
+@mkdir($requestDir, recursive: true);
+
+foreach (glob($dtoDir.'/*.php') as $stale) {
+    unlink($stale);
+}
+foreach (glob($requestDir.'/*.php') as $stale) {
+    unlink($stale);
+}
+
+$dtoCount = 0;
+foreach ($loader->schemas() as $name => $schema) {
+    if (($schema['type'] ?? null) !== 'object' && ! isset($schema['allOf'])) {
+        continue; // Non-object schemas (enums-as-strings, etc.) have nothing to generate here.
+    }
+
+    $normalized = SchemaNormalizer::normalize($schema);
+
+    if ($normalized['properties'] === []) {
+        continue;
+    }
+
+    file_put_contents("{$dtoDir}/{$name}.php", DtoEmitter::emit($name, $normalized));
+    $dtoCount++;
+}
+
+$requestCount = 0;
+foreach ($loader->operations() as $operation) {
+    $className = studly($operation['operationId']).'Request';
+    file_put_contents("{$requestDir}/{$className}.php", RequestEmitter::emit($className, $operation));
+    $requestCount++;
+}
+
+fwrite(STDOUT, "Generated {$dtoCount} DTO(s) into src/Generated and {$requestCount} Request(s) into src/Generated/Requests.\n");
+
+function studly(string $value): string
+{
+    return str_replace(' ', '', ucwords(str_replace(['-', '_'], ' ', $value)));
+}

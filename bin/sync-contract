@@ -1,0 +1,41 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * M6.2 — pulls a pinned copy of the eCollectors Cloud OpenAPI contract into
+ * contract/openapi.yaml, and records the exact source commit in
+ * contract/VERSION. Deliberately manual (docs/design/M6-DOCS-SDKS-DESIGN.md
+ * §4.2 in the platform repo): no cross-repo automation exists until a
+ * second SDK justifies building it — run this script and commit the result
+ * whenever the SDK is meant to track a new contract revision, never on a
+ * schedule.
+ *
+ * Usage: php bin/sync-contract [path-to-ecollectors-platform-checkout]
+ * Defaults to ../ecollectors-platform, a sibling checkout of the platform
+ * repo — the only source this script currently knows how to read from.
+ */
+
+$sourceRepo = $argv[1] ?? dirname(__DIR__, 2).'/ecollectors-platform';
+$sourceSpec = $sourceRepo.'/openapi/v1.yaml';
+
+if (! is_file($sourceSpec)) {
+    fwrite(STDERR, "No openapi/v1.yaml found at {$sourceSpec}.\n");
+    fwrite(STDERR, "Usage: php bin/sync-contract [path-to-ecollectors-platform-checkout]\n");
+    exit(1);
+}
+
+$commit = trim((string) shell_exec(sprintf('git -C %s rev-parse HEAD', escapeshellarg($sourceRepo))));
+
+if ($commit === '') {
+    fwrite(STDERR, "Could not resolve the source repository's current commit.\n");
+    exit(1);
+}
+
+$targetDir = dirname(__DIR__).'/contract';
+copy($sourceSpec, $targetDir.'/openapi.yaml');
+file_put_contents($targetDir.'/VERSION', $commit.PHP_EOL);
+
+fwrite(STDOUT, "Synced contract/openapi.yaml from {$sourceRepo} at {$commit}.\n");
+fwrite(STDOUT, "Review the diff, then run `composer generate` and commit both.\n");

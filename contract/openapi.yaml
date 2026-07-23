@@ -1,0 +1,1834 @@
+openapi: 3.1.0
+
+info:
+  title: eCollectors Cloud API
+  version: "1.0.0"
+  license:
+    name: Proprietary
+    identifier: UNLICENSED
+  contact:
+    name: eCollectors
+  description: >
+    The eCollectors Cloud public contract (docs/architecture/eCollectorsCloudArchitecture.md
+    v2.0, FROZEN constitutional; Module M0 — Contract). This specification is the
+    contract of record (C-4): every HTTP endpoint, request/response shape, SDK, API
+    Explorer surface, Playground, and Postman collection is generated from or
+    validated against this document, never the reverse.
+
+
+    M1 Knowledge Delivery (Phase C) contributed the first `paths` — exactly the
+    three KnowledgeDeliveryArchitecture.md §3.1 endpoints. Core Search S3
+    contributed the Search API family's first member (`GET /search`,
+    SearchArchitecture.md §7.3) under the one `/search/*` namespace and the one
+    "Search API" tag; S5 added the second member (`GET /search/explain`, §18);
+    the remaining reserved sibling members (suggestions, autocomplete, facets,
+    aggregations, recommendations) enter this contract each in its own change.
+    M2 Consumer Identity, M3 Cloud Gateway, and M7 API Explorer & Playground
+    add their own `paths` entries the same way.
+
+
+    ## Quickstart
+
+
+    **1. Get an API key.** Self-service (M4): `POST /auth/register`, then
+    `POST /organisations` to create your Organisation, `POST
+    /organisations/{organisation}/products` and `.../products/{product}/applications`
+    (an Application is born with a Production environment automatically), then
+    `POST .../environments/{environment}/keys` — the plaintext key is
+    returned exactly once. Manual issuance via the platform's own console
+    remains available as an alternative during the R1 window.
+
+
+    **2. Make your first request.** Every data-plane endpoint takes the key
+    as a Bearer token:
+
+    ```
+
+    curl -H "Authorization: Bearer ec_production_..." \
+
+      https://api.ecollectors.cloud/v1/hierarchy
+
+    ```
+
+
+    **3. Understand the response.** Every error follows RFC 7807
+    (`application/problem+json`) with a stable, branchable `code` — see
+    `docs_url` on any error response, or browse every code directly at
+    `{docs_base_url}/errors/{code}` (§4.3).
+
+
+    **4. Next steps.** Browse the full reference below; the PHP/Laravel SDK
+    (M6.2) wraps this same contract once published.
+
+servers:
+  - url: /api/v1
+    description: >-
+      Version 1 — additive-only (C-4): fields may be added, nothing is ever
+      removed or renamed without a new `/v2` server entry.
+
+paths:
+
+  /search:
+    get:
+      operationId: search
+      summary: Search the public knowledge corpus.
+      description: >-
+        SearchArchitecture.md §7.3, the Search API family's first member (S3).
+        Search LOCATES resources; Delivery REPRESENTS them — every result item
+        carries its identity and canonical Delivery URL and never a complete
+        payload; follow `url` for the resource itself. Reads are served from the
+        public search projection, which contains exactly the servable corpus (P7):
+        an unpublished or dark-branch entity cannot appear. Results are relevance-
+        ordered within each `type` (typo-tolerant, synonym-aware — the S1.5 frozen
+        ranking model) and grouped by type in register order (variant,
+        catalogue-entry, knowledge-record, asset); engine relevance scores are
+        not comparable across types, so types never interleave.
+      tags: [Search API]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, maxLength: 200 }
+          description: The search terms. Must not be empty or whitespace-only.
+        - name: type
+          in: query
+          required: false
+          schema: { type: string, enum: [variant, catalogue-entry, knowledge-record, asset] }
+          description: >-
+            Restrict results to one public type. Omitted, all types are searched.
+            (`asset` added in S4 — additive, C-4.)
+        - name: filter
+          in: query
+          required: false
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              hierarchy:
+                oneOf:
+                  - type: string
+                  - { type: array, items: { type: string } }
+                description: >-
+                  Narrow to results whose hierarchy ancestry contains the named
+                  branch(es), e.g. `filter[hierarchy]=British India`. Values come
+                  from the `hierarchy` facet of a previous response.
+            additionalProperties:
+              oneOf:
+                - type: string
+                - { type: array, items: { type: string } }
+          description: >-
+            Facet filters: the structural `hierarchy` facet plus (S4) every
+            catalogue-defined facet name — the additional names are DATA the
+            catalogue's own field definitions declare (e.g. denomination,
+            monarch, mint, metal in a numismatic catalogue), discoverable as
+            the keys of a previous response's `facets`. Names outside that
+            vocabulary are rejected (422), never guessed at.
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: >-
+            The Search API envelope. FROZEN (owner ruling 2026-07-16): every
+            Search API response — every member, forever — has exactly these six
+            top-level keys; only the contents inside each key evolve.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchEnvelope' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /search/explain:
+    get:
+      operationId: explainSearch
+      summary: Explain why a result matched a query and how it was ranked.
+      description: >-
+        SearchArchitecture.md §18, the Search API family's second member (S5).
+        Given a query and one served resource's identity, the response carries
+        the located item plus a `match` block: matched or not, its rank within
+        its type, the engine-neutral per-rule ranking scores
+        (words/typo/proximity/attribute/exactness plus tiebreakers), which
+        document fields matched, and which synonym expansions the query
+        triggered. Serves ONLY the public projection (P7): an identity outside
+        the served set — unknown, unpublished, dark branch — is a 404, exactly
+        as Delivery would answer. The rank scan is bounded
+        (`beyond_scan_limit` status when the cap is hit) so explain stays
+        cheap on adversarial queries.
+      tags: [Search API]
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema: { type: string, maxLength: 200 }
+          description: The search terms to explain against. Must not be empty.
+        - name: type
+          in: query
+          required: true
+          schema: { type: string, enum: [variant, catalogue-entry, knowledge-record, asset] }
+          description: The subject's public type.
+        - name: identity
+          in: query
+          required: true
+          schema: { type: string, maxLength: 200 }
+          description: >-
+            The subject's public identity — the `identity` of a result item
+            from `GET /search` (a business identifier, entry number or asset
+            number).
+        - name: filter
+          in: query
+          required: false
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            additionalProperties:
+              oneOf:
+                - type: string
+                - { type: array, items: { type: string } }
+          description: >-
+            The same facet-filter vocabulary as `GET /search` — supply the
+            filters the original search used so rank reflects the same result
+            set. Unknown names are rejected (422).
+      responses:
+        '200':
+          description: >-
+            The Search API envelope (same six frozen keys as every member;
+            `facets` is deliberately empty — explain has no distributions).
+            `results` carries exactly one item: the located subject extended
+            with its `match` block.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchExplainEnvelope' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /variants/{business_identifier}:
+    get:
+      operationId: getVariant
+      summary: The success measure — a Variant's full trusted knowledge.
+      description: >-
+        KnowledgeDeliveryArchitecture.md §3.2. Read-only, cacheable, addressed by a
+        permanent business identifier (§2.2 — an alias hit still resolves with HTTP
+        200, never a redirect). Fails closed to 404 (never 403) when the entry or any
+        ancestor hierarchy node is inactive (§3.4, D-5).
+      tags: [Knowledge Delivery]
+      parameters:
+        - name: business_identifier
+          in: path
+          required: true
+          schema: { type: string }
+          description: The Variant's current business identifier, OR any identifier it has ever carried (§2.2).
+        - name: include
+          in: query
+          required: false
+          schema: { type: string, enum: [assets] }
+          description: 'include=assets embeds the existing asset manifest inline; omitted, `assets` is a link (§3.1).'
+        - name: If-None-Match
+          in: header
+          required: false
+          schema: { type: string }
+        - name: If-Modified-Since
+          in: header
+          required: false
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: The Variant payload.
+          headers:
+            ETag: { schema: { type: string } }
+            Last-Modified: { schema: { type: string } }
+            Cache-Control: { schema: { type: string } }
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VariantPayload' }
+        '304':
+          description: Not Modified — the caller's cached copy is still current.
+          headers:
+            ETag: { schema: { type: string } }
+            Last-Modified: { schema: { type: string } }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /catalogue-entries/{entry_number}:
+    get:
+      operationId: getCatalogueEntry
+      summary: A Catalogue Entry and its Variants (identity list).
+      description: KnowledgeDeliveryArchitecture.md §3.1. `entry_number` is permanent, assigned once at creation — nothing to alias.
+      tags: [Knowledge Delivery]
+      parameters:
+        - name: entry_number
+          in: path
+          required: true
+          schema: { type: string }
+        - name: If-None-Match
+          in: header
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: The Catalogue Entry payload.
+          headers:
+            ETag: { schema: { type: string } }
+            Last-Modified: { schema: { type: string } }
+            Cache-Control: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CatalogueEntryPayload' }
+        '304':
+          description: Not Modified.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /hierarchy/{node_slug_path}:
+    get:
+      operationId: getHierarchy
+      summary: Browse — children and Catalogue Entries at a node.
+      description: >-
+        KnowledgeDeliveryArchitecture.md §3.1. `node_slug_path` is a '/'-joined
+        chain of each level's own slug, root-first (e.g. `coin/india`); an absent
+        path serves the hierarchy root. Children/entries are cursor-paginated
+        (umbrella §4.1) via the shared CursorPage envelope. NOT alias-aware — a
+        Hierarchy Node is explicitly outside M1.1's permanence guarantee (§2.2).
+      tags: [Knowledge Delivery]
+      parameters:
+        - name: node_slug_path
+          in: path
+          required: false
+          schema: { type: string }
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - name: entries_cursor
+          in: query
+          required: false
+          schema: { type: string }
+          description: Cursor for the `entries` page.
+        - name: entries_limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+          description: Page size for `entries`.
+      responses:
+        '200':
+          description: The hierarchy browse payload.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HierarchyPayload' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /auth/register:
+    post:
+      operationId: registerCloudUser
+      summary: Register a new CloudUser — the eCollectors Console's customer identity (M4.1).
+      description: >-
+        M2-CONSUMER-IDENTITY-DESIGN.md §9's anticipated "CloudUser tomorrow",
+        delivered: the first step of self-service ("Anonymous → Register →
+        CloudUser → Create Organisation → Owner"). Issues a `CloudUserAuth`
+        token immediately — no separate login step is required after
+        registering. Public: no credential required or accepted.
+      tags: [Cloud Console]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string, maxLength: 255 }
+                email: { type: string, format: email, maxLength: 255 }
+                password: { type: string, minLength: 8 }
+      responses:
+        '201':
+          description: The new CloudUser and a usable bearer token.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudUserAuthEnvelope' }
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /auth/login:
+    post:
+      operationId: loginCloudUser
+      summary: Authenticate an existing CloudUser.
+      description: >-
+        Unknown email and a wrong password return the identical response —
+        credential existence is never disclosed, the same fail-closed spirit
+        as C-5's identifier rule applied to authentication. Public: no
+        credential required or accepted.
+      tags: [Cloud Console]
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: A usable bearer token.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudUserAuthEnvelope' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /organisations:
+    post:
+      operationId: createOrganisationForOwner
+      summary: Create an Organisation and become its owner.
+      description: >-
+        Self-service composition of M2's existing, unmodified `CreateOrganisation`
+        action (M2-CONSUMER-IDENTITY-DESIGN.md §9) plus the new
+        `cloud_organisation_members` owner row (M4.1). Every self-registered
+        Organisation starts on the seeded `Starter` plan — self-service never
+        picks a plan (no billing exists yet); plan changes remain operator-only.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 255 }
+                contact_name: { type: [string, "null"], maxLength: 255 }
+                contact_email: { type: [string, "null"], format: email, maxLength: 255 }
+      responses:
+        '201':
+          description: The new Organisation.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudOrganisationSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /organisations/{organisation}:
+    patch:
+      operationId: updateOrganisation
+      summary: Update an Organisation's descriptive data.
+      description: >-
+        M4.2 — delegates to the existing, unmodified M2 `UpdateOrganisation`
+        action. Only `name`/`contact_name`/`contact_email` are consumed; the
+        plan, lifecycle state and public identifier never change here. A
+        caller who is not a member of `organisation` receives the same 404 as
+        an unknown `organisation` — membership is never disclosed (C-5).
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 255 }
+                contact_name: { type: [string, "null"], maxLength: 255 }
+                contact_email: { type: [string, "null"], format: email, maxLength: 255 }
+      responses:
+        '200':
+          description: The updated Organisation.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudOrganisationSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /organisations/{organisation}/products:
+    post:
+      operationId: createProduct
+      summary: Create a Product under an Organisation.
+      description: >-
+        M4.2 — delegates to the existing, unmodified M2 `CreateProduct`
+        action. Products are deliberately thin (umbrella §1): name and slug
+        only.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 255 }
+                slug: { type: [string, "null"], maxLength: 255, description: Generated from `name` when omitted. }
+      responses:
+        '201':
+          description: The new Product.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudProductSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /organisations/{organisation}/products/{product}:
+    patch:
+      operationId: updateProduct
+      summary: Update a Product's descriptive data.
+      description: M4.2 — delegates to the existing, unmodified M2 `UpdateProduct` action.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 255 }
+                slug: { type: string, maxLength: 255 }
+      responses:
+        '200':
+          description: The updated Product.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudProductSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /organisations/{organisation}/products/{product}/archive:
+    post:
+      operationId: archiveProduct
+      summary: Archive a Product.
+      description: >-
+        M4.2 — delegates to the existing, unmodified M2 `ArchiveProduct`
+        action. Refused (409) while the Product still has an active
+        Application beneath it — archiving never cascades.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: The archived Product.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudProductSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /organisations/{organisation}/products/{product}/restore:
+    post:
+      operationId: restoreProduct
+      summary: Restore an archived Product to active.
+      description: M4.2 — delegates to the existing, unmodified M2 `RestoreProduct` action.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/ProductId'
+      responses:
+        '200':
+          description: The restored Product.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudProductSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /organisations/{organisation}/products/{product}/applications:
+    post:
+      operationId: createApplication
+      summary: Create an Application under a Product.
+      description: >-
+        M4.3 — delegates to the existing, unmodified M2 `CreateApplication`
+        action, including its domain invariant: the Application is born with
+        its guaranteed Production environment (an application without
+        production credentials is not a consumer).
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/ProductId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, maxLength: 255 }
+                description: { type: [string, "null"] }
+      responses:
+        '201':
+          description: The new Application (its Production environment is not embedded — fetch it via the console's environment listing).
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudApplicationSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /organisations/{organisation}/products/{product}/applications/{application}:
+    patch:
+      operationId: updateApplication
+      summary: Update an Application's descriptive data.
+      description: M4.3 — delegates to the existing, unmodified M2 `UpdateApplication` action.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ApplicationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, maxLength: 255 }
+                description: { type: [string, "null"] }
+      responses:
+        '200':
+          description: The updated Application.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudApplicationSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /organisations/{organisation}/products/{product}/applications/{application}/archive:
+    post:
+      operationId: archiveApplication
+      summary: Archive an Application.
+      description: >-
+        M4.3 — delegates to the existing, unmodified M2 `ArchiveApplication`
+        action. Refused (409) while any environment beneath it still has an
+        active API key — archiving never revokes anything implicitly.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        '200':
+          description: The archived Application.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudApplicationSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /organisations/{organisation}/products/{product}/applications/{application}/restore:
+    post:
+      operationId: restoreApplication
+      summary: Restore an archived Application to active.
+      description: M4.3 — delegates to the existing, unmodified M2 `RestoreApplication` action.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ApplicationId'
+      responses:
+        '200':
+          description: The restored Application.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudApplicationSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /organisations/{organisation}/products/{product}/applications/{application}/environments/{environment}/enable:
+    post:
+      operationId: enableEnvironment
+      summary: Enable a disabled Environment.
+      description: >-
+        M4.3 — delegates to the existing, unmodified M2 `EnableEnvironment`
+        action. Service resumes through the same credentials — disabling
+        never touched them.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ApplicationId'
+        - $ref: '#/components/parameters/EnvironmentId'
+      responses:
+        '200':
+          description: The enabled Environment.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudEnvironmentSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /organisations/{organisation}/products/{product}/applications/{application}/environments/{environment}/disable:
+    post:
+      operationId: disableEnvironment
+      summary: Disable an Environment.
+      description: >-
+        M4.3 — delegates to the existing, unmodified M2 `DisableEnvironment`
+        action. Stops serving WITHOUT touching credentials — every key
+        beneath stays exactly as issued.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ApplicationId'
+        - $ref: '#/components/parameters/EnvironmentId'
+      responses:
+        '200':
+          description: The disabled Environment.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudEnvironmentSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /organisations/{organisation}/products/{product}/applications/{application}/environments/{environment}/archive:
+    post:
+      operationId: archiveEnvironment
+      summary: Archive an Environment.
+      description: >-
+        M4.3 — delegates to the existing, unmodified M2 `ArchiveEnvironment`
+        action. Refused (409) for the Production environment while its
+        Application is active — an application without production
+        credentials is not a consumer.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ApplicationId'
+        - $ref: '#/components/parameters/EnvironmentId'
+      responses:
+        '200':
+          description: The archived Environment.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudEnvironmentSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /organisations/{organisation}/products/{product}/applications/{application}/environments/{environment}/restore:
+    post:
+      operationId: restoreEnvironment
+      summary: Restore an archived Environment to active.
+      description: M4.3 — delegates to the existing, unmodified M2 `RestoreEnvironment` action.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ApplicationId'
+        - $ref: '#/components/parameters/EnvironmentId'
+      responses:
+        '200':
+          description: The restored Environment.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudEnvironmentSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /organisations/{organisation}/products/{product}/applications/{application}/environments/{environment}/keys:
+    post:
+      operationId: issueApiKey
+      summary: Issue an API Key on an Environment.
+      description: >-
+        M4.4 — delegates to the existing, unmodified M2 `IssueApiKey` action.
+        The frozen §4.2 format (`ec_{env}_{random}_{checksum}`) is generated
+        and only its derived, non-secret parts persist — the plaintext
+        `secret` in the response is the ONLY time it is ever available; it
+        cannot be retrieved again.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ApplicationId'
+        - $ref: '#/components/parameters/EnvironmentId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: { type: [string, "null"], maxLength: 255 }
+                expires_at: { type: [string, "null"], format: date-time }
+      responses:
+        '201':
+          description: The new API Key, with its plaintext secret.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudApiKeyIssuedSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /organisations/{organisation}/products/{product}/applications/{application}/environments/{environment}/keys/{key}:
+    patch:
+      operationId: updateApiKey
+      summary: Update an API Key's label.
+      description: >-
+        M4.4 — delegates to the existing, unmodified M2 `UpdateApiKey`
+        action. The label is the only mutable attribute — the secret, its
+        hash, prefix, last four characters and lifecycle state never change
+        here.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ApplicationId'
+        - $ref: '#/components/parameters/EnvironmentId'
+        - $ref: '#/components/parameters/KeyId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label]
+              properties:
+                label: { type: [string, "null"], maxLength: 255 }
+      responses:
+        '200':
+          description: The updated API Key. Never carries a secret.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudApiKeySummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /organisations/{organisation}/products/{product}/applications/{application}/environments/{environment}/keys/{key}/rotate:
+    post:
+      operationId: rotateApiKey
+      summary: Rotate an API Key.
+      description: >-
+        M4.4 — delegates to the existing, unmodified M2 `RotateApiKey`
+        action: issues a successor (linked via `rotated_from_id`) and either
+        revokes the predecessor immediately, or schedules its revocation via
+        `scheduled_revocation_at` (reusing the `expires_at` anchor) —
+        giving callers an overlap window.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ApplicationId'
+        - $ref: '#/components/parameters/EnvironmentId'
+        - $ref: '#/components/parameters/KeyId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label: { type: [string, "null"], maxLength: 255, description: Label for the successor key. }
+                scheduled_revocation_at: { type: [string, "null"], format: date-time, description: Omit for immediate revocation of the predecessor. }
+      responses:
+        '201':
+          description: The successor API Key, with its plaintext secret.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudApiKeyIssuedSummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  /organisations/{organisation}/products/{product}/applications/{application}/environments/{environment}/keys/{key}/revoke:
+    post:
+      operationId: revokeApiKey
+      summary: Revoke an API Key.
+      description: >-
+        M4.4 — delegates to the existing, unmodified M2 `RevokeApiKey`
+        action: active → revoked, terminal and irreversible.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/ProductId'
+        - $ref: '#/components/parameters/ApplicationId'
+        - $ref: '#/components/parameters/EnvironmentId'
+        - $ref: '#/components/parameters/KeyId'
+      responses:
+        '200':
+          description: The revoked API Key. Never carries a secret.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudApiKeySummary' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /organisations/{organisation}/audit-log:
+    get:
+      operationId: getOrganisationAuditLog
+      summary: The Organisation's audit trail.
+      description: >-
+        M4.5 — surfacing, not building (M2-CONSUMER-IDENTITY-DESIGN.md §4.9's
+        own forward reference: "Org-scoped visibility when the customer
+        console arrives"). A read-only, cursor-paginated projection of the
+        append-only console audit log every M2 domain action already writes
+        — covers every action anywhere in the chain beneath this
+        Organisation, by whoever performed it (the customer via self-service,
+        or a platform operator via `/console`), not only self-service actions.
+      tags: [Cloud Console]
+      security:
+        - CloudUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/OrganisationId'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: The audit trail, newest first.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CloudAuditEventPage' }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+security:
+  - ApiKeyAuth: []
+
+components:
+
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: ec_{env}_{random}_{checksum}
+      description: >
+        The frozen API key format (umbrella §4.2; M2-CONSUMER-IDENTITY-DESIGN.md
+        §2/§4.2): `ec_{environment}_{32-char-random}_{6-char-checksum}`, hashed at
+        rest, presented as a Bearer token. PINNED: Bearer is THE transport — the
+        owner decision recorded in the M3 Cloud Gateway design (§9, 2026-07-15) and
+        enforced by the live gateway runtime on every /api/v1 request
+        (docs/architecture/M3-CLOUD-GATEWAY.md). During the §17 migration window
+        the posture is `anonymous-permitted` (requests without a key receive the
+        public tiers); after the owner-gated flip to `required`, a missing key is a
+        401 `unauthenticated`.
+
+    CloudUserAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: Sanctum personal access token
+      description: >
+        The eCollectors Console's self-service customer identity (M4.1) — a
+        Sanctum bearer token issued at registration or login, authenticated via
+        the `cloud_user` guard. A completely separate security domain from
+        `ApiKeyAuth`: never resolved by the M3 gateway pipeline, and an
+        `ec_{env}_…` API key never authenticates as a CloudUser either way.
+
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+      description: >-
+        Opaque pagination cursor from a previous page's `next_cursor` (umbrella
+        §4.1). Omit to request the first page. Never decode or construct this value
+        — it is an implementation detail of the issuing endpoint.
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+      description: Maximum number of items to return in one page.
+
+    OrganisationId:
+      name: organisation
+      in: path
+      required: true
+      schema: { type: string }
+      description: >-
+        The Organisation's opaque public identifier (`org_…`). Bound by
+        parameter name (M4.2), not by the model's own route key — a foreign
+        Organisation resolves as 404, identical to an unknown one (C-5).
+
+    ProductId:
+      name: product
+      in: path
+      required: true
+      schema: { type: string }
+      description: >-
+        The Product's opaque public identifier (`prod_…`). Must belong to
+        `organisation` in the same path — a Product from a different
+        Organisation resolves as 404 too, even if the caller owns
+        `organisation` itself.
+
+    ApplicationId:
+      name: application
+      in: path
+      required: true
+      schema: { type: string }
+      description: >-
+        The Application's opaque public identifier (`app_…`). Must belong to
+        `product` in the same path (M4.3) — same 404-on-mismatch rule as
+        `product` does against `organisation`.
+
+    EnvironmentId:
+      name: environment
+      in: path
+      required: true
+      schema: { type: string }
+      description: >-
+        The Environment's opaque public identifier (`env_…`). Must belong to
+        `application` in the same path (M4.3).
+
+    KeyId:
+      name: key
+      in: path
+      required: true
+      schema: { type: string }
+      description: >-
+        The API Key's opaque public identifier (`key_…`). Must belong to
+        `environment` in the same path (M4.4).
+
+  headers:
+    X-Request-Id:
+      description: >-
+        Correlates this response to server-side logs and support conversations
+        (umbrella §4.4). Present on every response, success or error, whether the
+        caller supplied one or the platform generated it.
+      schema:
+        type: string
+        format: uuid
+    X-RateLimit-Limit:
+      description: The request quota for the current window (umbrella §4.5).
+      schema:
+        type: integer
+    X-RateLimit-Remaining:
+      description: Requests remaining in the current window.
+      schema:
+        type: integer
+    X-RateLimit-Reset:
+      description: Unix timestamp when the current window resets. Present alongside `Retry-After` once a request has been throttled.
+      schema:
+        type: integer
+    Retry-After:
+      description: Seconds to wait before retrying. Present on 429 and 503 responses.
+      schema:
+        type: integer
+    WWW-Authenticate:
+      description: >-
+        Present on 401 responses (M3 §12): the challenge naming the pinned Bearer
+        scheme.
+      schema:
+        type: string
+        example: Bearer
+
+  schemas:
+
+    ProblemDetails:
+      type: object
+      description: >-
+        RFC 7807 `application/problem+json` — the platform's one error shape,
+        forever (umbrella §4.3). Every module's error responses use exactly this
+        shape; no module defines its own error format.
+      required: [type, title, status, code]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+          description: >-
+            A URI reference identifying the problem type. `about:blank` when no
+            more specific documentation page exists yet for this error.
+          example: "about:blank"
+        title:
+          type: string
+          description: A short, human-readable summary of the problem type. Constant for a given `code`.
+          example: Not Found
+        status:
+          type: integer
+          description: The HTTP status code for this occurrence, repeated for convenience.
+          example: 404
+        detail:
+          type: string
+          description: >-
+            A human-readable explanation specific to this occurrence. Never
+            discloses internals (stack traces, file paths, query text) — fail
+            closed on information disclosure exactly as on access control.
+          example: "The requested resource could not be found."
+        instance:
+          type: string
+          format: uri-reference
+          description: A URI reference identifying this specific occurrence.
+        code:
+          type: string
+          description: >-
+            A stable, machine-readable error code — safe for consumer code to
+            branch on. Once shipped, a code's meaning never changes; new codes are
+            added additively (C-4).
+          example: not_found
+        docs_url:
+          type: string
+          format: uri
+          description: A link to the documentation for this error code.
+      additionalProperties: true
+
+    CloudUserAuthEnvelope:
+      type: object
+      description: M4.1 — returned by both registration and login.
+      required: [user, token]
+      properties:
+        user:
+          type: object
+          required: [id, name, email]
+          properties:
+            id: { type: string, description: 'Opaque public identifier, `usr_…`.' }
+            name: { type: string }
+            email: { type: string, format: email }
+        token:
+          type: string
+          description: A Sanctum bearer token for the `CloudUserAuth` security scheme. Returned once; store it — it cannot be retrieved again.
+
+    CloudOrganisationSummary:
+      type: object
+      required: [id, name, status, plan]
+      properties:
+        id: { type: string, description: 'Opaque public identifier, `org_…`.' }
+        name: { type: string }
+        status: { type: string, enum: [active, suspended, archived] }
+        plan: { type: string, description: The Organisation's plan name (M4.1 self-service always seeds `Starter`). }
+
+    CloudProductSummary:
+      type: object
+      description: M4.2. Products are deliberately thin (umbrella §1) — nothing beyond identity, slug and lifecycle.
+      required: [id, name, slug, status, organisation]
+      properties:
+        id: { type: string, description: 'Opaque public identifier, `prod_…`.' }
+        name: { type: string }
+        slug: { type: string }
+        status: { type: string, enum: [active, archived] }
+        organisation: { type: string, description: The parent Organisation's public identifier. }
+
+    CloudApplicationSummary:
+      type: object
+      description: M4.3. The Consumer Profile attachment point (a later module) — for now, identity, description and lifecycle.
+      required: [id, name, status, product]
+      properties:
+        id: { type: string, description: 'Opaque public identifier, `app_…`.' }
+        name: { type: string }
+        description: { type: [string, "null"] }
+        status: { type: string, enum: [active, archived] }
+        product: { type: string, description: The parent Product's public identifier. }
+
+    CloudEnvironmentSummary:
+      type: object
+      description: M4.3. The isolation boundary — credentials, quota class and log isolation live at this level.
+      required: [id, type, status, application]
+      properties:
+        id: { type: string, description: 'Opaque public identifier, `env_…`.' }
+        type: { type: string, enum: [production, staging, development, sandbox] }
+        status: { type: string, enum: [active, disabled, archived] }
+        application: { type: string, description: The parent Application's public identifier. }
+
+    CloudApiKeySummary:
+      type: object
+      description: M4.4. Never carries the secret — only its derived, non-secret parts (frozen §4.2).
+      required: [id, label, prefix, last_four, status, environment]
+      properties:
+        id: { type: string, description: 'Opaque public identifier, `key_…`.' }
+        label: { type: [string, "null"] }
+        prefix: { type: string, description: "The key's display prefix (`ec_{env}_...`, truncated)." }
+        last_four: { type: string }
+        status: { type: string, enum: [active, revoked, expired] }
+        expires_at: { type: [string, "null"], format: date-time }
+        environment: { type: string, description: The parent Environment's public identifier. }
+
+    CloudApiKeyIssuedSummary:
+      description: >-
+        `CloudApiKeySummary` plus the plaintext secret — returned ONLY by
+        issue and rotate, exactly once, never again by any other endpoint.
+      allOf:
+        - $ref: '#/components/schemas/CloudApiKeySummary'
+        - type: object
+          required: [secret]
+          properties:
+            secret: { type: string, description: 'The plaintext credential (`ec_{env}_{random}_{checksum}`). Store it now — it cannot be retrieved again.' }
+
+    CloudAuditEventPage:
+      description: M4.5. One console audit event per row — see `CursorPage` for the envelope shape.
+      allOf:
+        - $ref: '#/components/schemas/CursorPage'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                type: object
+                required: [action, actor, subject_type, context, occurred_at]
+                properties:
+                  action: { type: string, description: 'The domain action''s own name, e.g. `CreateProduct`, `ArchiveApplication`.' }
+                  actor:
+                    type: object
+                    required: [kind, name]
+                    properties:
+                      kind: { type: string, enum: [you, member, operator, system], description: '`you` = the requesting CloudUser; `operator` = platform staff via `/console`; `system` = no actor recorded.' }
+                      name: { type: [string, "null"], description: "Denormalised display name, captured at the time of the action." }
+                  subject_type: { type: string, description: 'A human label derived from the affected entity''s type, e.g. `Organisation`, `ApiKey`. Never the entity''s database id (D-2) — see `context` for its public identifier.' }
+                  context:
+                    type: object
+                    additionalProperties: true
+                    description: Action-specific detail, e.g. the affected entity's public identifiers — never a raw database id.
+                  occurred_at: { type: string, format: date-time }
+
+    CursorPage:
+      type: object
+      description: >-
+        The cursor-pagination envelope every list endpoint returns (umbrella §4.1).
+        A module contributing a list endpoint composes this with its own item
+        schema via `allOf`, overriding `data.items` — this component is never
+        copied or reimplemented per module.
+      required: [data, next_cursor]
+      properties:
+        data:
+          type: array
+          items: {}
+        next_cursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page, or `null` when this is the last page.
+
+    SearchResultItem:
+      type: object
+      description: >-
+        One located resource (SearchArchitecture §7.3, frozen philosophy):
+        "Search locates resources; Delivery represents resources." An item
+        carries exactly identity, title, subtitle, snippet, type, lightweight
+        hierarchy context and the canonical Delivery URL — NEVER a complete
+        Variant/Knowledge payload. The Search API is not a second delivery
+        endpoint; consumers wanting the resource follow `url`.
+      required: [type, identity, title, subtitle, snippet, hierarchy, url]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [variant, catalogue-entry, knowledge-record, asset]
+        identity:
+          type: string
+          description: >-
+            The resource's public identity — a Variant's or Knowledge Record's
+            business identifier, a Catalogue Entry's permanent entry number, an
+            Asset's permanent asset number.
+        title: { type: string }
+        subtitle:
+          type: [string, "null"]
+        snippet:
+          type: [string, "null"]
+          description: A short plain-text excerpt of the resource's knowledge values.
+        hierarchy:
+          type: array
+          items: { type: string }
+          description: Ancestor branch names, root-first — locate context, and the vocabulary for `filter[hierarchy]`.
+        url:
+          type: string
+          description: >-
+            The canonical Delivery API URL for this resource — always current
+            (an identifier rotation is reflected immediately, never served
+            stale). A knowledge-record's Delivery representation is its
+            carrying Variant's payload (`enrichment`), so its `url` points
+            there.
+
+    SearchEnvelope:
+      type: object
+      description: >-
+        THE FROZEN SEARCH API ENVELOPE (SearchArchitecture §7.3, owner ruling
+        2026-07-16): every Search API response — every member, forever — has
+        exactly these six top-level keys: meta · query · filters · facets ·
+        results · links. The envelope never changes; only the contents inside
+        each key evolve (additively, C-4). An empty member carries empty
+        contents — the keys still appear.
+      required: [meta, query, filters, facets, results, links]
+      additionalProperties: false
+      properties:
+        meta:
+          type: object
+          properties:
+            total: { type: integer, description: Estimated matches across the whole result set (not the page). }
+            count: { type: integer, description: Items on this page. }
+            limit: { type: integer }
+            generated_at: { type: string, format: date-time }
+        query:
+          type: object
+          description: The interpreted request, echoed back.
+          properties:
+            q: { type: string }
+            type: { type: [string, "null"] }
+        filters:
+          type: object
+          description: The applied facet filters, echoed back. Empty object when none.
+          additionalProperties: true
+        facets:
+          type: object
+          description: >-
+            Facet name → value → count over the WHOLE result set (S4-proof
+            shape, owner ruling): the structural facets `type` and `hierarchy`
+            always exist, even with empty distributions; every later facet
+            name derives from the catalogue's own field definitions — data,
+            never names the code knows.
+          required: [type, hierarchy]
+          properties:
+            type:
+              type: object
+              additionalProperties: { type: integer }
+            hierarchy:
+              type: object
+              additionalProperties: { type: integer }
+          additionalProperties:
+            type: object
+            additionalProperties: { type: integer }
+        results:
+          type: array
+          items: { $ref: '#/components/schemas/SearchResultItem' }
+        links:
+          type: object
+          required: [self, next]
+          properties:
+            self: { type: string }
+            next:
+              type: [string, "null"]
+              description: This request with the next-page cursor, or null on the last page.
+
+    SearchMatch:
+      type: object
+      description: >-
+        The explanation block (S5, SearchArchitecture §18): whether and how
+        the subject matched, in the ENGINE-NEUTRAL §15 vocabulary — never a
+        vendor diagnostic shape.
+      required: [status, rank, score, ranking, matched_fields, synonyms_applied, scanned]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [matched, not_matched, beyond_scan_limit]
+          description: >-
+            `matched` — the subject is in the query's ranked results;
+            `not_matched` — the whole result set was examined and the subject
+            is not in it; `beyond_scan_limit` — the bounded rank scan ended
+            before reaching the subject (large result set), so its presence
+            is undetermined beyond `scanned` positions.
+        rank:
+          type: [integer, "null"]
+          description: 1-based position within the subject's type, when matched.
+        score:
+          type: [number, "null"]
+          description: The engine's overall relevance score for this query (0–1), when matched.
+        ranking:
+          type: array
+          description: >-
+            Per-rule relevance scores in evaluation order — the §15 model:
+            words, typo, proximity, attribute, exactness, then any register
+            tiebreaker (e.g. the Default-Variant demotion).
+          items:
+            type: object
+            required: [rule, score]
+            additionalProperties: false
+            properties:
+              rule: { type: string }
+              score: { type: [number, "null"] }
+        matched_fields:
+          type: array
+          items: { type: string }
+          description: Document attributes the query terms matched in (e.g. name, values_text).
+        synonyms_applied:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+          description: Query terms that triggered synonym expansions, with the expansions applied.
+        scanned:
+          type: integer
+          description: How many ranked positions the rank scan examined.
+
+    SearchExplainResultItem:
+      type: object
+      description: >-
+        The located subject — the same locate-only item shape as `GET /search`
+        (SearchResultItem cannot be composed via allOf because its
+        `additionalProperties: false` is itself frozen) — extended with
+        exactly one additional key: `match`.
+      required: [type, identity, title, subtitle, snippet, hierarchy, url, match]
+      additionalProperties: false
+      properties:
+        type:
+          type: string
+          enum: [variant, catalogue-entry, knowledge-record, asset]
+        identity: { type: string }
+        title: { type: string }
+        subtitle:
+          type: [string, "null"]
+        snippet:
+          type: [string, "null"]
+        hierarchy:
+          type: array
+          items: { type: string }
+        url: { type: string }
+        match: { $ref: '#/components/schemas/SearchMatch' }
+
+    SearchExplainEnvelope:
+      type: object
+      description: >-
+        The frozen Search API envelope, explain member (S5): the same six
+        top-level keys as every member. `facets` is always an empty object —
+        explain has no distributions; `links.next` is always null — explain
+        does not paginate.
+      required: [meta, query, filters, facets, results, links]
+      additionalProperties: false
+      properties:
+        meta:
+          type: object
+          properties:
+            generated_at: { type: string, format: date-time }
+        query:
+          type: object
+          description: The interpreted request, echoed back.
+          properties:
+            q: { type: string }
+            type: { type: string }
+            identity: { type: string }
+        filters:
+          type: object
+          description: The applied facet filters, echoed back. Empty object when none.
+          additionalProperties: true
+        facets:
+          type: object
+          description: Always empty for explain — the key exists because the envelope is frozen.
+          additionalProperties: false
+        results:
+          type: array
+          minItems: 1
+          maxItems: 1
+          items: { $ref: '#/components/schemas/SearchExplainResultItem' }
+        links:
+          type: object
+          required: [self, next]
+          properties:
+            self: { type: string }
+            next:
+              type: "null"
+              description: Explain does not paginate.
+
+    KnowledgeValue:
+      type: object
+      description: >-
+        One "values" entry (§3.2): only enabled template fields appear, empty
+        values are omitted. `raw` for a Reference Data field is `{slug, code}` —
+        never the underlying database id (D-2). `citations` (§6) is additive:
+        present only when at least one bibliographic source has been cited
+        for this value — never a `source_citation_id` or other internal id.
+      required: [label, type, value, raw]
+      properties:
+        label: { type: string }
+        type: { type: string, description: "The field's FieldType slug (text, reference_data, year, ...)." }
+        value: { type: string, description: Formatted for display. }
+        raw: {}
+        citations:
+          type: array
+          description: Bibliographic sources asserting this value (§6). Omitted entirely when the value has never been cited.
+          items:
+            type: object
+            required: [title, detail]
+            properties:
+              title: { type: string, description: "The cited source's title." }
+              detail: { type: [string, "null"], description: "Page/plate reference within the source, when relevant." }
+
+    VariantPayload:
+      type: object
+      description: KnowledgeDeliveryArchitecture.md §3.2 — the platform's success measure.
+      required: [identifier, requested_identifier, type, name, values, enrichment, assets, version, generated_at]
+      properties:
+        identifier: { type: string, description: "The Variant's current, canonical business identifier." }
+        requested_identifier: { type: string, description: "The identifier the caller actually requested - differs from identifier only on an alias hit." }
+        type: { type: string, enum: [variant] }
+        name: { type: string }
+        display:
+          type: object
+          properties:
+            title: { type: string }
+            subtitle: { type: string }
+        catalogue:
+          type: object
+          properties:
+            entry:
+              type: object
+              properties:
+                number: { type: string }
+                name: { type: string }
+            hierarchy: { type: array, items: { type: string }, description: "Ancestor names, root-first." }
+            collectible_type: { type: string }
+        values:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/KnowledgeValue' }
+        enrichment:
+          type: object
+          description: 'Never leaks a Knowledge Record''s existence (D-5): unavailable is exactly `{available: false}`.'
+          required: [available]
+          properties:
+            available: { type: boolean }
+            identifier: { type: string }
+            title: { type: string }
+        assets:
+          type: object
+          description: A link by default; the embedded asset manifest when `?include=assets` is requested.
+          properties:
+            manifest: {}
+        version: { type: integer, description: 'A stable projection version — increments only when this Variant''s own Knowledge Domain Event (M1.2) fires. Cheap to expose now; valuable later for sync/offline/webhook consumers and conflict detection.' }
+        generated_at: { type: string, format: date-time }
+
+    CatalogueEntryPayload:
+      type: object
+      description: KnowledgeDeliveryArchitecture.md §3.1 — the entry + its Variants (identity list).
+      required: [entry_number, type, name, values, variants, version, generated_at]
+      properties:
+        entry_number: { type: string }
+        type: { type: string, enum: [catalogue-entry] }
+        name: { type: string }
+        catalogue:
+          type: object
+          properties:
+            hierarchy: { type: array, items: { type: string } }
+            collectible_type: { type: string }
+        values:
+          type: object
+          additionalProperties: { $ref: '#/components/schemas/KnowledgeValue' }
+        variants:
+          type: array
+          items:
+            type: object
+            properties:
+              identifier: { type: string }
+              name: { type: string }
+              display_title: { type: string }
+        version: { type: integer }
+        generated_at: { type: string, format: date-time }
+
+    HierarchyPayload:
+      type: object
+      description: "KnowledgeDeliveryArchitecture.md §3.1 - browse: children + entries at a node (or the root)."
+      required: [type, children, entries, generated_at]
+      properties:
+        type: { type: string, enum: [hierarchy] }
+        node:
+          type: [object, "null"]
+          properties:
+            name: { type: string }
+            hierarchy: { type: array, items: { type: string } }
+            collectible_type: { type: string }
+        children:
+          allOf:
+            - $ref: '#/components/schemas/CursorPage'
+            - type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name: { type: string }
+                      slug: { type: string }
+                      has_children: { type: boolean }
+        entries:
+          allOf:
+            - $ref: '#/components/schemas/CursorPage'
+            - type: object
+              properties:
+                data:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      entry_number: { type: string }
+                      name: { type: string }
+        generated_at: { type: string, format: date-time }
+
+  responses:
+
+    NotFound:
+      description: >-
+        The requested resource does not exist — or the caller cannot see it (C-5,
+        KnowledgeDeliveryArchitecture.md D-5); existence is never disclosed either
+        way, so both cases return this identical response.
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+    ValidationError:
+      description: The request failed validation.
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+    Unauthorized:
+      description: >-
+        Missing or invalid credentials (C-5 fail-closed: an unknown or malformed
+        key returns this, never a 403 — existence of the key is not disclosed).
+        Gateway `code` values (M3 §12, additive): `unauthenticated` (no/unknown/
+        malformed credential — deliberately indistinguishable), `key_revoked` and
+        `key_expired` (a caller presenting a real credential has proven possession
+        and may learn that credential's own state; rotate via the console).
+        Absent during the anonymous-permitted migration window except for
+        revoked/expired keys, which are always answered honestly.
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+        WWW-Authenticate: { $ref: '#/components/headers/WWW-Authenticate' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+    Forbidden:
+      description: >-
+        The resolved consumer may not proceed (M3 §12, additive `code` values):
+        `access_suspended` — the organisation/product/application/environment
+        chain is not serviceable; ONE code for the whole chain, the exact level is
+        never disclosed (it is audited internally; the remedy — contact the
+        account owner / console — is identical regardless). `feature_not_available`
+        — the plan's licence does not include the requested capability.
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+    TooManyRequests:
+      description: >-
+        The rate limit for this key or IP has been exceeded (C-5 fail-closed:
+        exceeded quota → 429).
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+        X-RateLimit-Limit: { $ref: '#/components/headers/X-RateLimit-Limit' }
+        X-RateLimit-Remaining: { $ref: '#/components/headers/X-RateLimit-Remaining' }
+        X-RateLimit-Reset: { $ref: '#/components/headers/X-RateLimit-Reset' }
+        Retry-After: { $ref: '#/components/headers/Retry-After' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+    Conflict:
+      description: >-
+        The request is well-formed but the entity's current lifecycle state
+        refuses it (M4.2: ConsumerIdentity §4's guards — wrong transition, an
+        active dependent still beneath it). `detail` names the specific
+        refusal (the platform's refusal-with-explanation idiom).
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+    ServiceUnavailable:
+      description: >-
+        A dependency this endpoint reads through is temporarily unreachable
+        (for the Search API: the search engine, SearchArchitecture §6.4 —
+        fail closed, never fail wrong: an engine outage is never disguised as
+        an empty result set). Retry after the indicated interval.
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+        Retry-After: { $ref: '#/components/headers/Retry-After' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
+
+    InternalError:
+      description: >-
+        An unexpected error occurred. `detail` never discloses internals in
+        production (fail-closed applies to error responses too, not only access
+        control).
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/ProblemDetails' }
