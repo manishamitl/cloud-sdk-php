@@ -12,6 +12,8 @@ final class AuthResource extends Resource
 {
     /**
      * @param  array{name: string, email: string, password: string}  $data
+     *
+     * @example $client->auth()->register(['name' => 'Ada Lovelace', 'email' => 'ada@example.test', 'password' => 'correct-horse-battery-staple']);
      */
     public function register(array $data): CloudUserAuthEnvelope
     {
@@ -20,6 +22,8 @@ final class AuthResource extends Resource
 
     /**
      * @param  array{email: string, password: string}  $data
+     *
+     * @example $client->auth()->login(['email' => 'ada@example.test', 'password' => 'correct-horse-battery-staple']);
      */
     public function login(array $data): CloudUserAuthEnvelope
     {

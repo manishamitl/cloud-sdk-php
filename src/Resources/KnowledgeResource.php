@@ -13,11 +13,17 @@ use Ecollectors\CloudSdk\Generated\VariantPayload;
 
 final class KnowledgeResource extends Resource
 {
+    /**
+     * @example $client->knowledge()->variant('KGV1R-1911-CAL');
+     */
     public function variant(string $businessIdentifier, ?string $include = null): VariantPayload
     {
         return VariantPayload::fromArray($this->send(new GetVariantRequest($businessIdentifier, $include))->json());
     }
 
+    /**
+     * @example $client->knowledge()->catalogueEntry('E-000123');
+     */
     public function catalogueEntry(string $entryNumber): CatalogueEntryPayload
     {
         return CatalogueEntryPayload::fromArray($this->send(new GetCatalogueEntryRequest($entryNumber))->json());
@@ -31,6 +37,8 @@ final class KnowledgeResource extends Resource
      * therefore always includes the segment). Root browsing through this
      * SDK is not guaranteed until that's addressed in the platform's own
      * contract — this is not something the SDK can correct on its own.
+     *
+     * @example $client->knowledge()->hierarchy('coin/india');
      */
     public function hierarchy(
         string $path = '',

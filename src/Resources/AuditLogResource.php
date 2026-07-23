@@ -9,6 +9,9 @@ use Ecollectors\CloudSdk\Generated\Requests\GetOrganisationAuditLogRequest;
 
 final class AuditLogResource extends Resource
 {
+    /**
+     * @example $client->auditLog()->list($organisation->id);
+     */
     public function list(string $organisation, ?string $cursor = null, ?int $limit = null): CloudAuditEventPage
     {
         return CloudAuditEventPage::fromArray(

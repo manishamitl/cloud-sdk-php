@@ -12,6 +12,8 @@ final class OrganisationResource extends Resource
 {
     /**
      * @param  array{name: string, contact_name?: ?string, contact_email?: ?string}  $data
+     *
+     * @example $client->organisations()->create(['name' => 'NumisPoint Ltd']);
      */
     public function create(array $data): CloudOrganisationSummary
     {
@@ -20,6 +22,8 @@ final class OrganisationResource extends Resource
 
     /**
      * @param  array{name?: string, contact_name?: ?string, contact_email?: ?string}  $data
+     *
+     * @example $client->organisations()->update($organisation->id, ['contact_email' => 'billing@numispoint.test']);
      */
     public function update(string $organisation, array $data): CloudOrganisationSummary
     {

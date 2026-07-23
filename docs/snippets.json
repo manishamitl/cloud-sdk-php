@@ -1,0 +1,132 @@
+{
+    "archiveApplication": {
+        "resource": "applications",
+        "method": "archive",
+        "example": "$client->applications()->archive($organisation->id, $product->id, $application->id);"
+    },
+    "archiveEnvironment": {
+        "resource": "environments",
+        "method": "archive",
+        "example": "$client->environments()->archive($organisation->id, $product->id, $application->id, $environment->id);"
+    },
+    "archiveProduct": {
+        "resource": "products",
+        "method": "archive",
+        "example": "$client->products()->archive($organisation->id, $product->id);"
+    },
+    "createApplication": {
+        "resource": "applications",
+        "method": "create",
+        "example": "$client->applications()->create($organisation->id, $product->id, ['name' => 'Website']);"
+    },
+    "createOrganisationForOwner": {
+        "resource": "organisations",
+        "method": "create",
+        "example": "$client->organisations()->create(['name' => 'NumisPoint Ltd']);"
+    },
+    "createProduct": {
+        "resource": "products",
+        "method": "create",
+        "example": "$client->products()->create($organisation->id, ['name' => 'NumisPoint']);"
+    },
+    "disableEnvironment": {
+        "resource": "environments",
+        "method": "disable",
+        "example": "$client->environments()->disable($organisation->id, $product->id, $application->id, $environment->id);"
+    },
+    "enableEnvironment": {
+        "resource": "environments",
+        "method": "enable",
+        "example": "$client->environments()->enable($organisation->id, $product->id, $application->id, $environment->id);"
+    },
+    "explainSearch": {
+        "resource": "search",
+        "method": "explain",
+        "example": "$client->search()->explain('kgv half rupee 1912', 'variant', 'KGV1R-1911-CAL');"
+    },
+    "getCatalogueEntry": {
+        "resource": "knowledge",
+        "method": "catalogueEntry",
+        "example": "$client->knowledge()->catalogueEntry('E-000123');"
+    },
+    "getHierarchy": {
+        "resource": "knowledge",
+        "method": "hierarchy",
+        "example": "$client->knowledge()->hierarchy('coin/india');"
+    },
+    "getOrganisationAuditLog": {
+        "resource": "auditLog",
+        "method": "list",
+        "example": "$client->auditLog()->list($organisation->id);"
+    },
+    "getVariant": {
+        "resource": "knowledge",
+        "method": "variant",
+        "example": "$client->knowledge()->variant('KGV1R-1911-CAL');"
+    },
+    "issueApiKey": {
+        "resource": "apiKeys",
+        "method": "issue",
+        "example": "$client->apiKeys()->issue($organisation->id, $product->id, $application->id, $environment->id, ['label' => 'Production key']);"
+    },
+    "loginCloudUser": {
+        "resource": "auth",
+        "method": "login",
+        "example": "$client->auth()->login(['email' => 'ada@example.test', 'password' => 'correct-horse-battery-staple']);"
+    },
+    "registerCloudUser": {
+        "resource": "auth",
+        "method": "register",
+        "example": "$client->auth()->register(['name' => 'Ada Lovelace', 'email' => 'ada@example.test', 'password' => 'correct-horse-battery-staple']);"
+    },
+    "restoreApplication": {
+        "resource": "applications",
+        "method": "restore",
+        "example": "$client->applications()->restore($organisation->id, $product->id, $application->id);"
+    },
+    "restoreEnvironment": {
+        "resource": "environments",
+        "method": "restore",
+        "example": "$client->environments()->restore($organisation->id, $product->id, $application->id, $environment->id);"
+    },
+    "restoreProduct": {
+        "resource": "products",
+        "method": "restore",
+        "example": "$client->products()->restore($organisation->id, $product->id);"
+    },
+    "revokeApiKey": {
+        "resource": "apiKeys",
+        "method": "revoke",
+        "example": "$client->apiKeys()->revoke($organisation->id, $product->id, $application->id, $environment->id, $key->id);"
+    },
+    "rotateApiKey": {
+        "resource": "apiKeys",
+        "method": "rotate",
+        "example": "$client->apiKeys()->rotate($organisation->id, $product->id, $application->id, $environment->id, $key->id);"
+    },
+    "search": {
+        "resource": "search",
+        "method": "query",
+        "example": "$client->search()->query('kgv half rupee 1912');"
+    },
+    "updateApiKey": {
+        "resource": "apiKeys",
+        "method": "update",
+        "example": "$client->apiKeys()->update($organisation->id, $product->id, $application->id, $environment->id, $key->id, ['label' => 'Renamed key']);"
+    },
+    "updateApplication": {
+        "resource": "applications",
+        "method": "update",
+        "example": "$client->applications()->update($organisation->id, $product->id, $application->id, ['description' => 'Storefront integration']);"
+    },
+    "updateOrganisation": {
+        "resource": "organisations",
+        "method": "update",
+        "example": "$client->organisations()->update($organisation->id, ['contact_email' => 'billing@numispoint.test']);"
+    },
+    "updateProduct": {
+        "resource": "products",
+        "method": "update",
+        "example": "$client->products()->update($organisation->id, $product->id, ['name' => 'NumisPoint Marketplace']);"
+    }
+}

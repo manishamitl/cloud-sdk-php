@@ -18,21 +18,33 @@ use Ecollectors\CloudSdk\Generated\Requests\RestoreEnvironmentRequest;
  */
 final class EnvironmentResource extends Resource
 {
+    /**
+     * @example $client->environments()->enable($organisation->id, $product->id, $application->id, $environment->id);
+     */
     public function enable(string $organisation, string $product, string $application, string $environment): CloudEnvironmentSummary
     {
         return CloudEnvironmentSummary::fromArray($this->send(new EnableEnvironmentRequest($organisation, $product, $application, $environment))->json());
     }
 
+    /**
+     * @example $client->environments()->disable($organisation->id, $product->id, $application->id, $environment->id);
+     */
     public function disable(string $organisation, string $product, string $application, string $environment): CloudEnvironmentSummary
     {
         return CloudEnvironmentSummary::fromArray($this->send(new DisableEnvironmentRequest($organisation, $product, $application, $environment))->json());
     }
 
+    /**
+     * @example $client->environments()->archive($organisation->id, $product->id, $application->id, $environment->id);
+     */
     public function archive(string $organisation, string $product, string $application, string $environment): CloudEnvironmentSummary
     {
         return CloudEnvironmentSummary::fromArray($this->send(new ArchiveEnvironmentRequest($organisation, $product, $application, $environment))->json());
     }
 
+    /**
+     * @example $client->environments()->restore($organisation->id, $product->id, $application->id, $environment->id);
+     */
     public function restore(string $organisation, string $product, string $application, string $environment): CloudEnvironmentSummary
     {
         return CloudEnvironmentSummary::fromArray($this->send(new RestoreEnvironmentRequest($organisation, $product, $application, $environment))->json());

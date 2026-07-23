@@ -12,6 +12,7 @@
 /generator export-ignore
 /tests export-ignore
 /contract/openapi.yaml export-ignore
+/docs/snippets.json export-ignore
 /phpunit.xml export-ignore
 /.gitattributes export-ignore
 /.gitignore export-ignore

@@ -1,0 +1,31 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require dirname(__DIR__).'/vendor/autoload.php';
+
+use Ecollectors\CloudSdk\Generator\SnippetExtractor;
+
+$entries = SnippetExtractor::extract();
+
+$manifest = [];
+foreach ($entries as $entry) {
+    $manifest[$entry['operationId']] = [
+        'resource' => $entry['resource'],
+        'method' => $entry['method'],
+        'example' => $entry['example'],
+    ];
+}
+
+ksort($manifest);
+
+$root = dirname(__DIR__);
+@mkdir("{$root}/docs", recursive: true);
+
+file_put_contents(
+    "{$root}/docs/snippets.json",
+    json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_LINE_TERMINATORS).PHP_EOL,
+);
+
+fwrite(STDOUT, sprintf("Wrote %d snippet(s) into docs/snippets.json.\n", count($manifest)));

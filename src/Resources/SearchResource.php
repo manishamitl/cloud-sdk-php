@@ -13,6 +13,8 @@ final class SearchResource extends Resource
 {
     /**
      * @param  list<string>|null  $filter
+     *
+     * @example $client->search()->query('kgv half rupee 1912');
      */
     public function query(string $q, ?string $type = null, ?array $filter = null, ?string $cursor = null, ?int $limit = null): SearchEnvelope
     {
@@ -21,6 +23,8 @@ final class SearchResource extends Resource
 
     /**
      * @param  list<string>|null  $filter
+     *
+     * @example $client->search()->explain('kgv half rupee 1912', 'variant', 'KGV1R-1911-CAL');
      */
     public function explain(string $q, string $type, string $identity, ?array $filter = null): SearchExplainEnvelope
     {

@@ -31,6 +31,7 @@
     },
     "scripts": {
         "generate": "php bin/generate",
+        "generate-snippets": "php bin/generate-snippets",
         "test": "pest"
     },
     "config": {

@@ -19,6 +19,8 @@ final class ApiKeyResource extends Resource
      * retrieved again through any other call.
      *
      * @param  array{label?: ?string, expires_at?: ?string}  $data
+     *
+     * @example $client->apiKeys()->issue($organisation->id, $product->id, $application->id, $environment->id, ['label' => 'Production key']);
      */
     public function issue(string $organisation, string $product, string $application, string $environment, array $data = []): CloudApiKeyIssuedSummary
     {
@@ -29,6 +31,8 @@ final class ApiKeyResource extends Resource
 
     /**
      * @param  array{label: ?string}  $data
+     *
+     * @example $client->apiKeys()->update($organisation->id, $product->id, $application->id, $environment->id, $key->id, ['label' => 'Renamed key']);
      */
     public function update(string $organisation, string $product, string $application, string $environment, string $key, array $data): CloudApiKeySummary
     {
@@ -42,6 +46,8 @@ final class ApiKeyResource extends Resource
      * appearance in plaintext.
      *
      * @param  array{label?: ?string, scheduled_revocation_at?: ?string}  $data
+     *
+     * @example $client->apiKeys()->rotate($organisation->id, $product->id, $application->id, $environment->id, $key->id);
      */
     public function rotate(string $organisation, string $product, string $application, string $environment, string $key, array $data = []): CloudApiKeyIssuedSummary
     {
@@ -50,6 +56,9 @@ final class ApiKeyResource extends Resource
         );
     }
 
+    /**
+     * @example $client->apiKeys()->revoke($organisation->id, $product->id, $application->id, $environment->id, $key->id);
+     */
     public function revoke(string $organisation, string $product, string $application, string $environment, string $key): CloudApiKeySummary
     {
         return CloudApiKeySummary::fromArray(
