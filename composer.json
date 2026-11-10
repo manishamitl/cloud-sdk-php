@@ -7,7 +7,7 @@
     "support": {
         "issues": "https://github.com/ecollectors/cloud-sdk-php/issues",
         "source": "https://github.com/ecollectors/cloud-sdk-php",
-        "docs": "https://docs.ecollectors.cloud"
+        "docs": "https://docs.ecollectors.in"
     },
     "keywords": ["ecollectors", "sdk", "api-client", "openapi", "laravel", "saloon"],
     "require": {

@@ -34,7 +34,7 @@ final class EcollectorsCloud
     /**
      * `ec_{env}_…` — the M3 gateway data plane (Search, Knowledge Delivery).
      */
-    public static function withApiKey(string $apiKey, string $baseUrl = 'https://api.ecollectors.cloud/v1'): self
+    public static function withApiKey(string $apiKey, string $baseUrl = 'https://api.ecollectors.in/v1'): self
     {
         return new self($baseUrl, $apiKey);
     }
@@ -44,7 +44,7 @@ final class EcollectorsCloud
      * self-service surface (Organisations, Products, Applications,
      * Environments, API Keys, the audit log).
      */
-    public static function withUserToken(string $token, string $baseUrl = 'https://api.ecollectors.cloud/v1'): self
+    public static function withUserToken(string $token, string $baseUrl = 'https://api.ecollectors.in/v1'): self
     {
         return new self($baseUrl, $token);
     }

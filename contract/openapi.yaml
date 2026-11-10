@@ -46,7 +46,7 @@ info:
 
     curl -H "Authorization: Bearer ec_production_..." \
 
-      https://api.ecollectors.cloud/v1/hierarchy
+      https://api.ecollectors.in/v1/hierarchy
 
     ```
 
